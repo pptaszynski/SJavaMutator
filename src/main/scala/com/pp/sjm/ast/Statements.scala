@@ -4,6 +4,11 @@ package com.pp.sjm.ast
  * @date 2011/01/17
  */
 
+import scala.collection.mutable.{HashSet,LinkedList}
+import scala.util.parsing.input.{Positional}
+
+import com.pp.sjm.symbols.{TypeClass,Type}
+
 /**
  * Enumeration to classify statements.
  * Used to pattern match statements that are candidates for mutation.
