@@ -15,10 +15,9 @@ object Main {
    * @param args the command line arguments
    */
   val parser = new JavaParser
-    import parser._
 
   def main(args: Array[String]) {
-
+	import parser._
 
     var verbose = false
     var fileName = "test.java"
@@ -39,7 +38,7 @@ object Main {
       
     val file = Source.fromFile(fileName)("UTF8")
     var fileContents = new CharSequenceReader(file.toArray)
-    val scanner = new lexical.Scanner(fileContents)
+    val scanner = new parser.lexical.Scanner(fileContents)
     val packratReader = new parser.PackratReader(scanner)
 
     parser.phrase(compilationUnit)(packratReader) match {

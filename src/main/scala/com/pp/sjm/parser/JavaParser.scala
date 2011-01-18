@@ -2,27 +2,27 @@ package com.pp.sjm.parser
 
 import com.pp.sjm.ast._
 import com.pp.sjm.symbols.{Type,TypeClass}
-import com.pp.sjm.token.JavaTokens
+import com.pp.sjm.token.{JavaTokens => tokens}
 
-import scala.util.parsing.combinator._
-import scala.util.parsing.combinator.syntactical.StandardTokenParsers
-import scala.util.parsing.combinator.token.StdTokens
+import scala.util.parsing.combinator.{PackratParsers}
+import scala.util.parsing.input.{Positional}
+import scala.util.parsing.combinator.syntactical.{StdTokenParsers, StandardTokenParsers}
+import scala.util.parsing.combinator.token.{StdTokens}
 import scala.collection.mutable.{HashSet,LinkedList}
 
 /**
  * @author Pawel
  *
  */
-class JavaParser extends StandardTokenParsers with PackratParsers {
+class JavaParser extends StandardTokenParsers with PackratParsers {  
+  override type Tokens <: StdTokens
   override val lexical: JavaLexer = new JavaLexer
-
-  import lexical.{Identifier,Dot,Semicolon,ArithmOp,JavaToken,LogicalOp,BitwiseOp,RelationalOp,QuestMark,CharLit}
+  
+  import lexical.{Identifier,Dot,Semicolon,ArithmOp,JavaToken,BitwiseOp,RelationalOp,QuestMark,CharLit}
   import lexical.{LeftBracket,RigthBracket,LeftBrace,RigthBrace,LeftParenthesis}
   import lexical.{RigthParenthesis,AssignOp,AssignArithmOp,OtherToken,Colon,Comma,Ellipsis,Wildcard,NumericLongLit}
   import lexical.{NumericDoubleLit,NumericFloatLit,NumericIntLit,NumericLit,OctNumericLit,HexNumericLit,StringLit}
-  import lexical.{JavaIdentifier, JavaKeyword, JavaStringLit, Keyword}
-
-  override type Elem = lexical.Token
+  import lexical.{JavaStringLit, Keyword}
   
   /**
    * Start symbol of the parser
@@ -879,14 +879,14 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def expressionList = rep1sep(expression, Comma())
+  def expressionList: Parser[List[Expression]] = rep1sep(expression, Comma())
 
   /**
    * parExpression
    * :   '(' expression ')'
    * ;
    */
-  def parExpression = LeftParenthesis() ~ expression ~ RigthParenthesis()
+  def parExpression: Parser[Expression] = LeftParenthesis() ~> expression <~ RigthParenthesis()
 
   /**
    *  expression
@@ -895,8 +895,16 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )?
    * ;
    */
-  def expression : Parser[Any]= conditionalExpression ~ opt(assignmentOperator ~ expression)
-
+  def expression : Parser[Expression]= conditionalExpression ~ opt(assignmentOperator ~ expression) ^^ {
+    case ce ~ assign => if (assign isDefined) assign.asInstanceOf[Some[~[JavaToken,Expression]]].get match {
+      case op ~ exp => {
+        var tok = tokens.JavaToken(op.chars)
+        tok.setPos(op.asInstanceOf[Positional].pos)
+        AssignExpr(tok, ce, exp)
+      }
+    } else ce 
+  }
+ 
   /**
    * assignmentOperator
    * :   '='
@@ -913,9 +921,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |    '>' '>' '='
    * ;
    */
-  def assignmentOperator = ( AssignOp("=") | AssignOp("+=") | AssignOp("-=") | AssignOp("*=") | AssignOp("/=") |
-    AssignOp("&=") | AssignOp("|=") | AssignOp("^=") | AssignOp("%=") | AssignOp("") | BitwiseOp("<<") ~ AssignOp("=")
-    | BitwiseOp(">>>") ~ AssignOp("=") | BitwiseOp(">>") ~ AssignOp("=")
+  def assignmentOperator : Parser[Elem] = ( AssignOp("=") | AssignOp("+=") | AssignOp("-=") | AssignOp("*=") | AssignOp("/=") |
+    AssignOp("&=") | AssignOp("|=") | AssignOp("^=") | AssignOp("%=") | AssignOp("") | BitwiseOp("<<") ~ AssignOp("=") ^^^ AssignOp("<<=")
+    | BitwiseOp(">>>") ~ AssignOp("=") ^^^ AssignOp(">>>=") | BitwiseOp(">>") ~ AssignOp("=") ^^^ AssignOp(">>=")
     )
 
 
@@ -926,7 +934,14 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )?
    * ;
    */
-  def conditionalExpression: Parser[Any] = conditionalOrExpression ~ opt(accept(QuestMark()) ~> expression ~ Colon() ~ conditionalExpression)
+  def conditionalExpression: Parser[Expression] = conditionalOrExpression ~ opt(QuestMark() ~> expression ~ (Colon() ~> conditionalExpression)) ^^ {
+    case e1 ~ cond => cond match {
+      case c: Some[~[Expression,Expression]] => c.get match {
+        case texp ~ fexp => ConditionalExpr(e1, texp, fexp)
+      }
+      case None => e1 
+    }
+  }
     /**
    * conditionalOrExpression
    * :   conditionalAndExpression
@@ -934,7 +949,14 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def conditionalOrExpression = rep1sep(conditionalAndExpression, accept(LogicalOp("||")))
+  def conditionalOrExpression: Parser[Expression] = chainl1(conditionalAndExpression, JavaToken("||") ^^ { 
+	  //rep1sep(conditionalAndExpression, JavaToken("||")) ^^ {
+	  orOp => {
+	 	  var tok = tokens.JavaToken("||")
+	 	  tok.setPos(orOp.asInstanceOf[JavaToken].pos)
+	 	  Logical(tok, _: Expression, _: Expression)
+	  }
+  })
 
   /**
    * conditionalAndExpression
@@ -943,7 +965,13 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def conditionalAndExpression = rep1sep(inclusiveOrExpression, accept(LogicalOp("&&")))
+  def conditionalAndExpression: Parser[Expression] = chainl1(inclusiveOrExpression,JavaToken("&&") ^^ {
+	  andOp => {
+	 	  var tok = tokens.JavaToken("&&")
+	 	  tok.setPos(andOp.asInstanceOf[JavaToken].pos)
+	 	  Logical(tok, _: Expression, _: Expression)
+	  }
+  })
 
   /**
    * inclusiveOrExpression
@@ -952,7 +980,13 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def inclusiveOrExpression = rep1sep(exclusiveOrExpression, accept(BitwiseOp("|")))
+  def inclusiveOrExpression: Parser[Expression] = chainl1(exclusiveOrExpression, BitwiseOp("|") ^^ {
+	  biOp => {
+	 	  var tok = tokens.JavaToken("|")
+	 	  tok.setPos(biOp.asInstanceOf[JavaToken].pos)
+	 	  BinaryExpr(tokens.JavaToken("|"),_ : Expression, _ :  Expression)  
+	  }
+  })
 
   /**
    * exclusiveOrExpression
@@ -961,7 +995,13 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def exclusiveOrExpression = rep1sep(andExpression, accept(BitwiseOp("^")))
+  def exclusiveOrExpression: Parser[Expression] = chainl1(andExpression, BitwiseOp("^") ^^ {
+	  biOp => {
+	 	  var tok = tokens.JavaToken("^")
+	 	  tok.setPos(biOp.asInstanceOf[JavaToken].pos)
+	 	  BinaryExpr(tokens.JavaToken("^"),_ : Expression, _ :  Expression)  
+	  }
+  })
 
   /**
    * andExpression
@@ -970,7 +1010,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def andExpression = rep1sep(equalityExpression, accept(BitwiseOp("&")))
+  def andExpression: Parser[Expression] = rep1sep(equalityExpression, BitwiseOp("&")) ^^ {
+	  case exps => exps.dropRight(1).foldRight[Expression](exps.last)((a,b)=> BinaryExpr(tokens.JavaToken("&"),b, a))
+  }
 
   /**
    * equalityExpression
@@ -983,8 +1025,34 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def equalityExpression = instanceOfExpression ~ opt((accept(RelationalOp("==")) | accept(RelationalOp("!="))) ~ instanceOfExpression)
-
+  def equalityExpression: Parser[Expression] = chainl1(instanceOfExpression, equalityOp ^^ {
+		  op => {
+			  var tok = tokens.JavaToken(op.chars)
+			  tok.setPos(op.asInstanceOf[JavaToken].pos)
+		 	  Relational(tokens.JavaToken(op.chars),_: Expression,_: Expression)
+		  }
+	  })
+//	  instanceOfExpression ~ rep((JavaToken("==") | JavaToken("!=")) ~ instanceOfExpression) ^^ {
+//	  case expr ~ rest => {
+//	 	  def foldRest(list: List[Parser[~[JavaToken,Expression]]]): Expression = list match {
+//	 	 	  case xs :: Nil => xs match {
+//	 	 	 	  cz
+//	 	 	  }
+//	 	 	  case xs :: rest => xs match {
+//	 	 	 	  case op ~ expr => Relational(JavaToken(op.chars), expr, foldRest(rest))
+//	 	 	 	  Relational.
+//	 	 	  }
+//	 	  }
+//	  }
+//  }
+  /**
+   * equalityOp 
+   *   :   
+   *     '=='
+   *   | '!='
+   * ;
+   */
+  def equalityOp = RelationalOp("==") | RelationalOp("!=")
   /**
    * instanceOfExpression
    *   :   relationalExpression
@@ -992,7 +1060,10 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )?
    * ;
    */
-  def instanceOfExpression = relationalExpression ~ opt(keyword("instanceof") ~ typeExpr)
+  def instanceOfExpression: Parser[Expression] = relationalExpression ~ opt(keyword("instanceof") ~> typeExpr) ^^ {
+	  case expr ~ Some(instOfExpr) => expr //TODO: deal with instanceOf
+	  case expr ~ None => expr 
+  }
 
   /**
    * relationalExpression
@@ -1001,7 +1072,13 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def relationalExpression = shiftExpression ~ rep(relationalOp ~ shiftExpression)
+  def relationalExpression: Parser[Expression] = chainl1(shiftExpression, relationalOp ^^ {
+	  op => {
+	 	var tok = tokens.JavaToken(op.chars)
+	 	tok.setPos(op.asInstanceOf[JavaToken].pos)
+	 	Relational(tok, _: Expression, _: Expression)
+	  }
+  })
 
   /**
    * relationalOp
@@ -1011,10 +1088,8 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   '>'
    * ;
    */
-  def relationalOp = (
-    accept(RelationalOp("<=")) | accept(RelationalOp(">="))
-    | accept(RelationalOp("<")) | accept(RelationalOp(">"))
-  )
+  def relationalOp = RelationalOp("<=") | RelationalOp(">=") | RelationalOp("<") | RelationalOp(">")
+
 
   /**
    * shiftExpression
@@ -1023,7 +1098,13 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def shiftExpression = additiveExpression ~ rep(shiftOp ~ additiveExpression)
+  def shiftExpression: Parser[Expression] = chainl1(additiveExpression, shiftOp ^^ {
+	op => {
+		var tok = tokens.JavaToken(op.chars)
+		tok.setPos(op.asInstanceOf[JavaToken].pos)
+		BinaryExpr(tok, _: Expression, _: Expression)
+	}
+  })
 
   /**
    * shiftOp
@@ -1045,8 +1126,15 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *      )*
    * ;
    */
-  def additiveExpression = multiplicativeExpression ~ rep((accept(ArithmOp("+")) | accept(ArithmOp("-"))) ~ multiplicativeExpression)
-
+  def additiveExpression: Parser[Expression] = chainl1(multiplicativeExpression, additivteOp ^^ {
+	  op => {
+	 	  var tok = tokens.JavaToken(op.chars)
+	 	  tok.setPos(op.asInstanceOf[JavaToken].pos)
+	 	  BinaryExpr(tok, _: Expression, _: Expression)
+	  }
+  })
+  
+  def additivteOp = ArithmOp("+") | ArithmOp("-")
   /**
    * multiplicativeExpression
    * :
@@ -1060,9 +1148,14 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def multiplicativeExpression = unaryExpression ~
-        rep((accept(ArithmOp("*")) | accept(ArithmOp("/")) | accept(ArithmOp("%"))) ~ unaryExpression)
-
+  def multiplicativeExpression: Parser[Expression] = chainl1(unaryExpression, multiplicativeOp ^^ {
+	op => {
+		var tok = tokens.JavaToken(op.chars)
+		tok.setPos(op.asInstanceOf[JavaToken].pos)
+		BinaryExpr(tok, _: Expression, _: Expression)
+	}
+  })
+  def multiplicativeOp = ArithmOp("*") | ArithmOp("/") | ArithmOp("%")
   /**
    * unaryExpression
    * :   '+'  unaryExpression
@@ -1072,11 +1165,17 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   unaryExpressionNotPlusMinus
    * ;
    */
-  def unaryExpression : Parser[Any] = (
-   ArithmOp("+") ~ unaryExpression
-    | ArithmOp("-") ~  unaryExpression
-    | ArithmOp("++") ~ unaryExpression
-    | ArithmOp("--") ~ unaryExpression
+  def unaryExpression : Parser[Expression] = (
+    (  ArithmOp("+")
+    | ArithmOp("-")
+    | ArithmOp("++")
+    | ArithmOp("--") ) ~ unaryExpression ^^ {
+    	case op ~ expr => { 
+    		var tok = tokens.JavaToken(op.chars)
+    		tok.setPos(op.asInstanceOf[JavaToken].pos)
+    		UnaryExpr(tok, expr)
+    	}  
+    }
     | unaryExpressionNotPlusMinus
     )
 
@@ -1093,11 +1192,31 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )?
    * ;
    */
-  def unaryExpressionNotPlusMinus = (
-     BitwiseOp("~") ~ unaryExpression
-    | LogicalOp("!") ~ unaryExpression
+  def unaryExpressionNotPlusMinus: Parser[Expression] = (
+     BitwiseOp("~") ~ unaryExpression ^^ {
+    	 case op ~ expr => {
+    		 var tok = tokens.JavaToken(op.chars)
+    		 tok.setPos(op.asInstanceOf[Positional].pos)
+    		 UnaryExpr(tok, expr)
+    	 }
+     }
+    | JavaToken("!") ~ unaryExpression ^^ {
+    	 case op ~ expr => {
+    		 var tok = tokens.JavaToken(op.chars)
+    		 tok.setPos(op.asInstanceOf[Positional].pos)
+    		 NotExpr(tok, expr)
+    	 }
+     }
     | castExpression
-    | primary ~ rep(selector) ~ opt(ArithmOp("++") | ArithmOp("--"))
+    | primary ~ rep(selector) ~ opt(ArithmOp("++") | ArithmOp("--")) ^^ {
+      case exp ~ selector ~ suffixUn => if (suffixUn.isDefined) suffixUn.get match {
+        case unary => {
+          var tok = tokens.JavaToken(unary.chars)
+          tok.setPos(unary.asInstanceOf[Positional].pos)
+          SuffixUnaryExpr(tok,exp)
+        }
+      } else exp
+    }  
     )
 
   /**
@@ -1106,9 +1225,10 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   '(' type ')' unaryExpressionNotPlusMinus
    * ;
    */
-  def castExpression: Parser[Any] = (
-    LeftParenthesis() ~ primitiveType ~ RigthParenthesis() ~ unaryExpression
-    | LeftParenthesis() ~ typeExpr ~ RigthParenthesis() ~ unaryExpressionNotPlusMinus
+  def castExpression: Parser[Expression] = (
+    (LeftParenthesis() ~> primitiveType <~ RigthParenthesis()) ~ unaryExpression ^^ { case t ~ expr => CastExpr(t, expr) }
+    | (LeftParenthesis() ~> typeExpr <~ RigthParenthesis()) ~ unaryExpressionNotPlusMinus ^^
+      { case t ~ expr => CastExpr(t, expr) }
   )
 
   /**
@@ -1135,15 +1255,27 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   'void' '.' 'class'
    * ;
    */
-  def primary = (
+  def primary: Parser[Expression]= (
     parExpression
-    | keyword("this") ~ rep(Dot() ~ identifier) ~ opt(identifierSuffix)
-    | identifier ~ rep(Dot() ~ identifier) ~ opt(identifierSuffix)
-    | keyword("super") ~ superSuffix
+    // So far I won't handle the suffixes
+    | keyword("this") ~ rep(Dot() ~> identifier) ~ opt(identifierSuffix) ^^ {
+    	case t ~ path ~ idSuffix => {
+    	  var name = ""
+    	  path match {
+    	    // Consider only first identifier before node as this may be the reall identifier of variable
+    	    case xs :: rest => name = xs.chars
+    	    case Nil => name = ""
+    	  }
+    	  // TODO: After implementing scoping check the variable in current scope.
+    	  ThisExpr(Id(VariableNode(name, Type.STRING)))
+    	}
+    }
+    | identifier ~ rep(Dot() ~ identifier) ~ opt(identifierSuffix)^^^ SomeExpr()
+    | keyword("super") ~ superSuffix ^^^ SuperExpr("") //Does not not do anything with the suffix
     | literal
-    | creator
-    | primitiveType ~ rep(accept(LeftBracket()) ~ accept(RigthBracket())) ~ Dot() ~ keyword("class")
-    | keyword("void") ~ accept(Dot()) ~ keyword("class")
+    | creator ^^^ SomeExpr()
+    | primitiveType ~ rep(accept(LeftBracket()) ~ accept(RigthBracket())) ~ Dot() ~ keyword("class") ^^^ SomeExpr()
+    | keyword("void") ~ accept(Dot()) ~ keyword("class") ^^^ SomeExpr()
     )
 
   /**
@@ -1176,7 +1308,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   innerCreator
    * ;
    */
-  def identifierSuffix = (
+  def identifierSuffix: Parser[Node] = (
     rep1(LeftBracket() ~ RigthBracket()) ~ Dot() ~ keyword("class")
     | rep1(LeftBracket() ~ expression ~ RigthBracket())
     | arguments
@@ -1185,7 +1317,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
     | Dot() ~ keyword("this")
     | Dot() ~ keyword("super") ~ arguments
     | innerCreator
-    )
+    ) ^^^ SomeNode()
 
   /**
    * selector
@@ -1324,16 +1456,52 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   NULL
    * ;
    */
-  def literal = (
-    acceptIf(_.isInstanceOf[NumericIntLit])("Not a literal: " + _.toString())
-    | acceptIf(_.isInstanceOf[NumericLongLit])("Not a literal: " + _.toString())
-    | acceptIf(_.isInstanceOf[NumericFloatLit])("Not a literal: " + _.toString())
-    | acceptIf(_.isInstanceOf[NumericDoubleLit])("Not a literal: " + _.toString())
-    | acceptIf(_.isInstanceOf[CharLit])("Not a literal: " + _.toString())
-    | acceptIf(_.isInstanceOf[JavaStringLit])("Not a literal: " + _.toString())
-    | keyword("true")
-    | keyword("false")
-    | keyword("null")
+  def literal: Parser[Constant] = positioned(
+    acceptIf(_.isInstanceOf[NumericIntLit])("Not a literal: " + _.toString()) ^^ {
+    	case lit => {
+    		var tok = tokens.NumericIntLit(lit.chars)
+    		tok.setPos(lit.asInstanceOf[Positional].pos)
+    		Constant(tok)
+    	}
+    }
+    | acceptIf(_.isInstanceOf[NumericLongLit])("Not a literal: " + _.toString()) ^^ {
+    	case lit => {
+    		var tok = tokens.NumericLongLit(lit.chars)
+    		tok.setPos(lit.asInstanceOf[Positional].pos)
+    		Constant(tok)
+    	}
+    }
+    | acceptIf(_.isInstanceOf[NumericFloatLit])("Not a literal: " + _.toString()) ^^ {
+    	case lit => {
+    		var tok = tokens.NumericFloatLit(lit.chars)
+    		tok.setPos(lit.asInstanceOf[Positional].pos)
+    		Constant(tok)
+    	}
+    }
+    | acceptIf(_.isInstanceOf[NumericDoubleLit])("Not a literal: " + _.toString()) ^^ {
+    	case lit => {
+    		var tok = tokens.NumericDoubleLit(lit.chars)
+    		tok.setPos(lit.asInstanceOf[Positional].pos)
+    		Constant(tok)
+    	}
+    }
+    | acceptIf(_.isInstanceOf[CharLit])("Not a literal: " + _.toString()) ^^ {
+    	case lit => {
+    		var tok = tokens.CharLit(lit.chars)
+    		tok.setPos(lit.asInstanceOf[Positional].pos)
+    		Constant(tok)
+    	}
+    }
+    | acceptIf(_.isInstanceOf[JavaStringLit])("Not a literal: " + _.toString()) ^^ {
+    	case lit => {
+    		var tok = tokens.JavaStringLit(lit.chars)
+    		tok.setPos(lit.asInstanceOf[Positional].pos)
+    		Constant(tok)
+    	}
+    }
+    | keyword("true") ^^^ Constant.TRUE 
+    | keyword("false") ^^^ Constant.FALSE
+    | keyword("null") ^^^ Constant.NULL
     )
   /*
   Annotations

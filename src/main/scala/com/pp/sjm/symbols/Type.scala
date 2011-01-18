@@ -63,5 +63,7 @@ object Type {
   
   lazy val VOID = new Type("void", TypeClass.PRIMITIVE)
   
+  lazy val STRING = new Type ("String", TypeClass.DEFINED)
+  
   lazy val CONSTRUCT = new Type("constructor", TypeClass.META)
 }

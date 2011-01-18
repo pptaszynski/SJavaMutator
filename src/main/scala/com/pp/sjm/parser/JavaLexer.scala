@@ -9,7 +9,8 @@ import scala.util.parsing.input.CharArrayReader.EofCh
 import scala.util.parsing.input.{Positional}
 
 
-class JavaLexer extends StdLexical with JavaTokens with JavaTokenParsers {
+class JavaLexer extends StdLexical with JavaTokenParsers with JavaTokens {
+  
   reserved += (
     "import",
     "package"
@@ -82,7 +83,7 @@ class JavaLexer extends StdLexical with JavaTokens with JavaTokenParsers {
 
   override type Elem = Char
   //override def token = positioned(token2)
-  override def token : Parser[Token] = (
+  override def token: Parser[Token] = (
     ident                      ^^ { case ident => processIdent(ident.mkString("")) }
     | charLiteral            ^^ { case chars => CharLit(chars.toString) }
     | stringLiteral          ^^ { case string => JavaStringLit(string mkString "") }
@@ -100,9 +101,9 @@ class JavaLexer extends StdLexical with JavaTokens with JavaTokenParsers {
     | EofCh ^^^ EOF
     | failure("illegal character")
   )
-
-  override protected def processIdent(name: String) =
-    if (reserved contains name) Keyword(name) else Identifier(name)
+  
+//  override protected def processIdent(name: String) =
+//    if (reserved contains name) JavaKeyword(name) else JavaIdentifier(name)
 
   override def whitespace: Parser[Any] = rep(
       whitespaceChar
@@ -232,8 +233,8 @@ class JavaLexer extends StdLexical with JavaTokens with JavaTokenParsers {
   def dot: Parser[Dot] = "." ^^ { case dot => new Dot }
   def ellipsis: Parser[Ellipsis] = "..." ^^^ Ellipsis()
   def eqeq: Parser[RelationalOp] = "==" ^^^ RelationalOp("==")
-  def ampamp: Parser[LogicalOp] = "&&" ^^^ LogicalOp("&&")
-  def barbar: Parser[LogicalOp] = "||" ^^^ LogicalOp("||")
+  def ampamp: Parser[JavaToken] = "&&" ^^^ JavaToken("&&")
+  def barbar: Parser[JavaToken] = "||" ^^^ JavaToken("||")
   def plusplus: Parser[ArithmOp] = "++" ^^^ ArithmOp("++")
   def subsub: Parser[ArithmOp] = "--" ^^^ ArithmOp("--")
   def pluseq: Parser[AssignArithmOp] = "+=" ^^^ AssignArithmOp("+=")
@@ -257,7 +258,7 @@ class JavaLexer extends StdLexical with JavaTokens with JavaTokenParsers {
   def lowerEqThan: Parser[RelationalOp] = "<=" ^^^ RelationalOp("<=")
   def greaterThan: Parser[RelationalOp] = ">" ^^^ RelationalOp(">")
   def lowerThan: Parser[RelationalOp] = "<"  ^^^ RelationalOp("<")
-  def bang: Parser[LogicalOp] = "!" ^^^ LogicalOp("!")
+  def bang: Parser[JavaToken] = "!" ^^^ JavaToken("!")
   def tilde: Parser[BitwiseOp] = "~" ^^^ BitwiseOp("~")
   def quest: Parser[QuestMark] = "?" ^^^ QuestMark()
   def colon: Parser[Colon] = ":"  ^^^ Colon()

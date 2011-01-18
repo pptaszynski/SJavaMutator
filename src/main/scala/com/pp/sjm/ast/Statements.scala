@@ -22,17 +22,6 @@ object StatementClass extends Enumeration {
 import StatementClass._
 
 /**
- * Block of statements node.
- * AST class representing block of statements - a method body, or a block of if, else,
- * for while, or other block construct
- */
-case class BlockNode() extends Node {
-  val statements: LinkedList[Statement] = new LinkedList[Statement]()
-  
-  def childs: Iterator[Node] = statements.asInstanceOf[LinkedList[Node]].iterator 
-}
-
-/**
  * A single statement
  */
 trait Statement extends Node {
@@ -47,6 +36,7 @@ trait Statement extends Node {
  * Sequence of two statements.
  * Can include two simple statements or other sequences.
  */
+@Deprecated
 case class StatementSeq[A <: Statement ,B <: Statement](stmt1: A, stmt2: B)
   extends Statement {
 	override def toString = stmt1.toString + "\n" + stmt2.toString

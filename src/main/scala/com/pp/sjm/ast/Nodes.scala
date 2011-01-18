@@ -35,8 +35,6 @@ trait TypedNode extends Node {
 	}
 }
 
-
-
 /**
  * Some AST node.
  * Node that represents an syntax element not significant in
@@ -82,7 +80,7 @@ case class ClassNode(val className: String, var mem: HashSet[Node]) extends Name
  * @author Pawel
  * 
  */
-case class VariableNode(val id: String, val t: Type) extends NamedNode with TypedNode {
+class VariableNode(val id: String, val t: Type) extends NamedNode with TypedNode {
 	/** Name of the variable */
 	def name = id
 	
@@ -99,18 +97,26 @@ case class VariableNode(val id: String, val t: Type) extends NamedNode with Type
 	
 	/** Make variable node a leaf node */
 	def childs: Iterator[Node] = List[Node]().iterator
+	
+	override def toString = name
 }
-
+object VariableNode {
+  def apply(id: String, t: Type) : VariableNode = new VariableNode(id, t)
+  def unapply(x: Any) : Option[(String,Type)] = x match {
+    case vn: VariableNode => Some(vn.name, vn.ofType)
+    case _ => None
+  }
+}
 /**
  * Class field node.
  * AST Class representing a field declaration inside a class body.
  */
-case class FieldNode(val n:String, t:Type) extends NamedNode with TypedNode {
-  def name: String = n
+class FieldNode(val n:String, t:Type) extends VariableNode(n, t) {
+  override def name: String = n
   /**
   * Gets the type of field represented by this node
   */
-  def ofType: Type = t
+  override def ofType: Type = t
   
   override def equals(that: Any) : Boolean = that match {
       case n: FieldNode => this.name == n.name && this.ofType == n.ofType
@@ -118,9 +124,14 @@ case class FieldNode(val n:String, t:Type) extends NamedNode with TypedNode {
     }
   
   /** Make field node a leaf node */
-  def childs: Iterator[Node] = List[Node]().iterator
+  override def childs: Iterator[Node] = List[Node]().iterator
 }
-
+object FieldNode {
+  def apply(n: String, t: Type) : FieldNode = new FieldNode(n,t)
+  def unapply(x: Any) : Option[(String, Type)] = x match {
+    case fn: FieldNode => Some(fn.name, fn.ofType)
+  }
+}
 /**
  * AST Method node.
  */
@@ -135,4 +146,13 @@ case class MethodNode(n:String, retType: Type, body: BlockNode) extends NamedNod
   def name: String = n
 }
 
-
+/**
+ * Block of statements node.
+ * AST class representing block of statements - a method body, or a block of if, else,
+ * for while, or other block construct
+ */
+case class BlockNode() extends Node {
+  val statements: LinkedList[Statement] = new LinkedList[Statement]()
+  
+  def childs: Iterator[Node] = statements.asInstanceOf[LinkedList[Node]].iterator 
+}

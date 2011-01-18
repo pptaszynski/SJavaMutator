@@ -1,9 +1,11 @@
 package com.pp.sjm.test
 
+import com.pp.sjm.parser._
+import com.pp.sjm.token.JavaTokens
+
 import junit.framework._
 import Assert._
 import scala.util.parsing.combinator.token.StdTokens;
-import com.pp.sjm.parser._
 
 /**
  * Created by IntelliJ IDEA.
@@ -27,8 +29,9 @@ import com.pp.sjm.parser._
 /**
  * Unit test for simple
  */
-class JavaLexerTest extends TestCase with StdTokens {
-  /**
+class JavaLexerTest extends TestCase {
+	
+	/**
    * Test to check parsing of basic tokens.
    *
    */
