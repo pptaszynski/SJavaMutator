@@ -40,7 +40,7 @@ case class SomeExpr() extends Expression {
  */
 class Id(varN: VariableNode) extends Expression {
 	/** variable bound with this node */
-	protected def variable: VariableNode = varN
+	def variable: VariableNode = varN
 	
 	/** Id node is equal to other Id node or to encapsulated VariableNode */
 	override def equals(that: Any) = varN.equals(that)
