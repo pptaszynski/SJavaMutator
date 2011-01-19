@@ -151,8 +151,31 @@ case class MethodNode(n:String, retType: Type, body: BlockNode) extends NamedNod
  * AST class representing block of statements - a method body, or a block of if, else,
  * for while, or other block construct
  */
-case class BlockNode() extends Node {
-  val statements: LinkedList[Statement] = new LinkedList[Statement]()
+class BlockNode() extends Node {
+  def this(stmts: List[Node]) {
+    this()
+    statements =  stmts
+  }
   
-  def childs: Iterator[Node] = statements.asInstanceOf[LinkedList[Node]].iterator 
+  var statements: List[Node] = List[Node]()
+  
+  def childs: Iterator[Node] = statements.iterator 
+  
+  override def toString = {
+    var str = "{\n"
+    for( s <- statements) {
+      str += s.toString + "\n"
+    }
+    str += "}\n"
+    str
+  }
+}
+
+object BlockNode {
+  def apply() : BlockNode = new BlockNode()
+  def apply(stmts: List[Node]) : BlockNode = new BlockNode(stmts)
+  def unapply(x: Any) : Option[List[Node]] = x match {
+    case bn: BlockNode => Some(bn.statements)
+    case _ => None
+  }
 }

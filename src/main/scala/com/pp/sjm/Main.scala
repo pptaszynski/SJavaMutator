@@ -20,7 +20,7 @@ object Main {
 	import parser._
 
     var verbose = false
-    var fileName = "test.java"
+    var fileName = "HessianServlet.java"
 
     for (a <- args) a match {
       case "-h" | "-help"    =>

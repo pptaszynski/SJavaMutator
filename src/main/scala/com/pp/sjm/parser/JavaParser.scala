@@ -210,9 +210,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   interfaceDeclaration
    * ;
    */
-  def classOrInterfaceDeclaration = (
-    classDeclaration
-  | interfaceDeclaration
+  def classOrInterfaceDeclaration: Parser[Node] = (
+    classDeclaration 
+  | interfaceDeclaration ^^^ SomeNode()
   )
 
   /**
@@ -315,8 +315,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
   def methodDeclaration: Parser[MethodNode] = (
     /* Constructors */
     modifiers ~> opt(typeParameters) ~> identifier ~ formalParameters ~ (opt(keyword("throws") ~> qualifiedNameList)
-      ~> LeftBrace() ~> opt(explicitConstructorInvocation) ~ rep(blockStatement) <~ RigthBrace()) ^^ {
-    	case id ~ formalParams ~ block => MethodNode(id.chars, Type.CONSTRUCT, BlockNode())
+      ~> LeftBrace() ~> opt(explicitConstructorInvocation) ~> rep(blockStatement) <~ RigthBrace()) ^^ {
+    	case id ~ formalParams ~ block => MethodNode(id.chars, Type.CONSTRUCT, 
+    	    BlockNode(block.foldLeft(List[Node]())(_ ::: _)))
     	// TODO: Implement serious dealing with constructor body (this mutator opportunity)
       }
       
@@ -325,7 +326,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
     modifiers ~> opt(typeParameters) ~> (typeExpr | keyword("void") ^^^ Type.VOID) ~ identifier ~ formalParameters
       ~ (rep(LeftBracket() ~ RigthBracket()) ~> opt(keyword("throws") ~> qualifiedNameList) ~> (block | Semicolon() ^^^ BlockNode())) ^^ {
     	// TODO: Implement serious dealing with parameters and block
-        case t ~ id ~ params ~ block => MethodNode(id.chars, t, BlockNode())  
+        case t ~ id ~ params ~ block => MethodNode(id.chars, t, block)  
       }
     )
 
@@ -462,9 +463,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   enumDeclaration
    * ;
    */
-  def classDeclaration = (
+  def classDeclaration : Parser[Node] = (
     normalClassDeclaration
-  | enumDeclaration
+  | enumDeclaration ^^^ SomeNode()
   )
 
   /**
@@ -686,8 +687,11 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     '}'
    * ;
    */
-  def block =  LeftBrace() ~> rep(blockStatement) <~ RigthBrace()
-
+  def block: Parser[BlockNode] =  LeftBrace() ~> rep(blockStatement) <~ RigthBrace() ^^ {
+    case stmts => {
+      BlockNode(stmts.foldLeft(List[Node]())( _ ::: _))
+    }
+  }
   /**
    * blockStatement
    * :   localVariableDeclarationStatement
@@ -695,10 +699,10 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   statement
    * ;
    */
-  def blockStatement: Parser[Any] = (
+  def blockStatement: Parser[List[Node]] = (
       localVariableDeclarationStatement
-    | classOrInterfaceDeclaration
-    | statement
+    | classOrInterfaceDeclaration ^^ { case decl => List[Node](decl) }
+    | statement ^^ { case stmt => List[Node](stmt) }
     )
 
   /**
@@ -707,7 +711,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     ';'
    * ;
    */
-   def localVariableDeclarationStatement = localVariableDeclaration <~ Semicolon()
+   def localVariableDeclarationStatement: Parser[List[VariableNode]] = localVariableDeclaration <~ Semicolon()
 
   /**
    * localVariableDeclaration
@@ -717,8 +721,19 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def localVariableDeclaration = variableModifiers ~ typeExpr ~ variableDeclarator <~
-    rep(Comma() ~> variableDeclarator)
+  def localVariableDeclaration: Parser[List[VariableNode]] = variableModifiers ~> typeExpr ~ rep1sep(variableDeclarator,Comma() ) ^^ {
+      case typ ~ names => {
+        var fields: List[VariableNode] = List[VariableNode]()
+        // names is a collection of Tuple2 where _1 is the name and _2 is dimension
+        for(name <- names) {
+          var t = typ
+          if (name._2 > 0) for (i <- 0 until name._2) t.name += "[]"
+          fields = VariableNode(name._1.chars, t) :: fields
+        }
+        
+        fields.reverse
+    }
+  }
 
   /**
    * statement
@@ -748,23 +763,29 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   ';'
    * ;
    */
-  def statement :  Parser[Any] = (
+  def statement :  Parser[Node] = positioned(
       block
-    | keyword("assert") ~ expression ~ opt(Colon() ~ expression) <~ Semicolon()
-    | keyword("if") ~ parExpression ~ statement ~ opt(keyword("else") ~ statement)
-    | forStatement
-    | keyword("while") ~ parExpression ~ statement
-    | keyword("do") ~ statement ~ keyword("while") ~ parExpression <~ Semicolon()
+    | keyword("assert") ~ expression ~ opt(Colon() ~ expression) <~ Semicolon() ^^^ SomeStatement()
+    | keyword("if") ~> parExpression ~ statement ~ opt(keyword("else") ~> statement) ^^ {
+      case cond ~ stmt ~ Some(els) => IfElseStmt(cond, stmt, els)
+      case cond ~ stmt ~ None => IfElseStmt(cond, stmt)
+    }
+    | forStatement ^^^ SomeStatement()
+    | keyword("while") ~ parExpression ~ statement ^^^ SomeStatement()
+    | keyword("do") ~ statement ~ keyword("while") ~ parExpression <~ Semicolon() ^^^ SomeStatement()
     | tryStatement
-    | keyword("switch") ~ parExpression <~ LeftBrace() ~> switchBlockStatementGroups <~ RigthBrace()
-    | keyword("synchronized") ~ parExpression ~ block
-    | keyword("return") ~ opt(expression) <~ Semicolon()
-    | keyword("throw") ~ expression <~ Semicolon()
-    | keyword("break") ~ opt(identifier) <~ Semicolon()
-    | keyword("continue") ~ opt(identifier) <~ Semicolon()
+    | keyword("switch") ~ parExpression <~ LeftBrace() ~> switchBlockStatementGroups <~ RigthBrace() ^^^ SomeStatement()
+    | keyword("synchronized") ~ parExpression ~ block ^^^ SomeStatement()
+    | keyword("return") ~> opt(expression) <~ Semicolon() ^^ {
+      case Some(expression) => ReturnStatement(expression)
+      case None => ReturnStatement()
+    }
+    | keyword("throw") ~> expression <~ Semicolon() ^^ { case exp => ThrowStatement(exp) }
+    | keyword("break") ~ opt(identifier) <~ Semicolon() ^^^ SomeStatement()
+    | keyword("continue") ~ opt(identifier) <~ Semicolon() ^^^ SomeStatement()
     | expression <~ Semicolon()
-    | identifier <~ Colon() ~> statement
-    | Semicolon()
+    | identifier ~> Colon() ~> statement
+    | Semicolon() ^^^ SomeStatement()
     )
 
   /**
@@ -804,9 +825,14 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )
    *  ;
    */
-  def tryStatement = keyword("try") ~ block ~ (
-      catches ~ opt(keyword("finally") ~ block)
-    | keyword("finally") ~ block
+  def tryStatement: Parser[Node] = (
+      keyword("try") ~> block ~ catches ~ opt(keyword("finally") ~> block) ^^ {
+        case tryBlock ~ catchBlocks ~ Some(finallyBlock) => TryCatchStmt(tryBlock, catchBlocks, finallyBlock)
+        case tryBlock ~ catchBlocks ~ None  => TryCatchStmt(tryBlock, catchBlocks, BlockNode())
+      }
+    | keyword("try") ~> block ~ (keyword("finally") ~> block) ^^ {
+        case tryBlock ~ finallyBlock => TryCatchStmt(tryBlock, List[BlockNode](), finallyBlock)
+      }
     )
 
   /**
@@ -816,7 +842,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def catches = catchClause ~ rep(catchClause)
+  def catches: Parser[List[BlockNode]] = rep1(catchClause) 
 
   /**
    * catchClause
@@ -824,7 +850,10 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     ')' block
    * ;
    */
-  def catchClause = keyword("catch") ~> LeftParenthesis() ~> formalParameter <~ RigthParenthesis() ~> block
+  def catchClause: Parser[BlockNode] = keyword("catch") ~> LeftParenthesis() ~> formalParameter ~ ( RigthParenthesis() ~> block) ^^ {
+    // Don't return formal parameter. So far only block are browserd to look for mutation opportunity.
+    case formalParam ~ b => b
+  }
 
   /**
    * formalParameter
@@ -1270,6 +1299,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
     	  ThisExpr(Id(VariableNode(name, Type.STRING)))
     	}
     }
+    //TODO: Return an Id node here, not the expression
     | identifier ~ rep(Dot() ~ identifier) ~ opt(identifierSuffix)^^^ SomeExpr()
     | keyword("super") ~ superSuffix ^^^ SuperExpr("") //Does not not do anything with the suffix
     | literal
