@@ -44,7 +44,7 @@ object Main {
     parser.phrase(compilationUnit)(packratReader) match {
       case parser.Success(item,next) => {
     	var parser = item // for debugging
-    	
+    	  
         println("Parsing succeeded \n"+parser+"\n\n"+next )
       }
       case parser.Failure(msg, next) => {

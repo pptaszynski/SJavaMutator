@@ -35,6 +35,14 @@ trait TypedNode extends Node {
 	}
 }
 
+trait Bindable {
+  var boundToId: Int = -1
+  
+  def bind(bindToId: Int): this.type = {
+    if (boundToId < 0) boundToId = bindToId
+    this
+  }
+}
 /**
  * Some AST node.
  * Node that represents an syntax element not significant in
