@@ -34,7 +34,7 @@ trait TypedNode extends Node {
 		case _ => false
 	}
 }
-
+ 
 trait Bindable {
   var boundToId: Int = -1
   

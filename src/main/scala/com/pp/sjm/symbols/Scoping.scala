@@ -22,7 +22,7 @@ trait Scoping extends Iterable[NamedNode] {
     private var environments: LinkedHashMap[Int, Env] = LinkedHashMap[Int, Env]()
     
     private var _currentEnvId: Int = -1
-    
+     
     /** Last created environment */
     def last: Env = environments.last._2
     
