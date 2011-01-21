@@ -14,7 +14,7 @@ import scala.collection.mutable.{HashSet,LinkedList,LinkedHashMap}
  * To change this template use File | Settings | File Templates.
  */
 
-trait Scoping extends Iterable[NamedNode] {
+trait Scoping {
   import util._
   
   object Env {
@@ -46,6 +46,7 @@ trait Scoping extends Iterable[NamedNode] {
         case _ => env = new Env(_Env.genId, env)
       }     
       environments += Tuple2(env.id, env)
+      _currentEnvId  = env.id 
       return environments(env id)
     }
   
@@ -54,7 +55,10 @@ trait Scoping extends Iterable[NamedNode] {
      * @return Previous current environment. The old one stored in the list of environemnts.
      */
     def reduce: Env = return_(environments(environments(_currentEnvId).prev.id)) andDo {_currentEnvId = environments(_currentEnvId).prev.id}
-  
+    
+    /** Remove environment from list */
+    def remove(e: Env) = if (environments.filter(_._2.prev.id == e.id).isEmpty) environments remove e.id
+    
     private object _Env {
       private var currentId = 0
       private[Scoping] def genId = return_(currentId) andDo {currentId = currentId + 1}
@@ -62,7 +66,7 @@ trait Scoping extends Iterable[NamedNode] {
   }
   
   class Env(val id: Int, val prev: Env) {
-   protected val set: LinkedHashMap[String, TypedNode] = LinkedHashMap[String,TypedNode]()
+   protected val set: LinkedHashMap[String, ScopedNode] = LinkedHashMap[String,ScopedNode]()
    
    def apply(name: String): Option[TypedNode] = {
      set.get(name) match {
@@ -71,9 +75,13 @@ trait Scoping extends Iterable[NamedNode] {
      }
    }
    
-   def searchOnlyCurrent(name: String): Option[TypedNode] = set.get(name)
+   def mount(node: ScopedNode) {
+     set += Tuple2(node.name, node)
+   }
    
-   def apply(node: TypedNode): Iterable[TypedNode] = {
+   def searchOnlyCurrent(name: String): Option[ScopedNode] = set.get(name)
+   
+   def apply(node: TypedNode): Iterable[ScopedNode] = {
      set.values.filter(_.compatibile(node)) ++ prev(node)
    }
   }
