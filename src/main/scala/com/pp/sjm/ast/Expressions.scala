@@ -1,11 +1,11 @@
-package com.pp.sjm.ast
 /**
  * @author Pawel
  * @date 2011/01/17
  */
+package com.pp.sjm.ast
 
 import scala.collection.mutable.{HashSet,LinkedList}
-import scala.util.parsing.input.{Positional}
+import scala.util.parsing.input.{Positional,Position,NoPosition,OffsetPosition}
 
 import com.pp.sjm.symbols.{TypeClass,Type}
 import com.pp.sjm.token.JavaTokens._
@@ -19,6 +19,7 @@ trait Expression extends TypedNode {
    * 
    */
   def ofType: Type
+  
 }
 
 trait OpExpr extends Expression {
@@ -38,23 +39,26 @@ case class SomeExpr() extends Expression {
 /**
  * Represents an use of variable identifier in an expression 
  */
-class Id(varN: VariableNode) extends Expression {
+class Id(n: VariableNode) extends Expression {
 	/** variable bound with this node */
-	def variable: VariableNode = varN
+	def variable: VariableNode = n 
 	
 	/** Id node is equal to other Id node or to encapsulated VariableNode */
-	override def equals(that: Any) = varN.equals(that)
+	override def equals(that: Any) = that match {
+	  case x: Id => this.n.equals(x.variable)
+	  case _ => false
+	}
 	
 	/** Name of encapsulated variable */
-	def name: String = varN.name
+	def name: String = n.id 
 	
 	/** Prints only the encapsulated variable */
-	override def toString: String = varN.toString
+	override def toString: String = n.toString
 	
 	/** Type of encapsulated variable */
-	def ofType: Type = varN.ofType
+	def ofType: Type = n.ofType
 	
-	def childs: Iterator[Node] = List[Node](varN).iterator
+	def childs: Iterator[Node] = List[VariableNode](n).iterator
 }
 /** Companion injector and extractor object for class `Id` */
 object Id {
@@ -68,7 +72,10 @@ object Id {
 }
 
 class ThisExpr(val rest: Id) extends Expression {
-	/**
+  pos = if (rest.pos != NoPosition) new OffsetPosition(rest.pos.asInstanceOf[OffsetPosition].source,
+      rest.pos.asInstanceOf[OffsetPosition].offset - 5) else NoPosition
+
+  /**
 	 * Compares ThisExpr `p` to other object.
 	 * It enables comparing ThisExpr `t` instance to VariableNode `v` instance. Return true if `this.rest` equals `v.name`
 	 */
@@ -335,7 +342,7 @@ object ConditionalExpr {
   }
 }
 
-class AssignExpr(t: JavaToken, val lhs: Expression, val rhs: Expression) extends BinaryExpr(t, rhs, lhs) {
+class AssignExpr(t: JavaToken, val lhs: Expression, val rhs: Expression) extends BinaryExpr(t, lhs, rhs) {
   override def ofType = rhs.ofType 
 }
 object AssignExpr {

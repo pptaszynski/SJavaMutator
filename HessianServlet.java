@@ -202,7 +202,7 @@ public class HessianServlet extends GenericServlet {
     try {
       if (_homeImpl != null) {
       }
-      else if (getInitParameter("home-class") != null) {
+      else if (getInitParameter("home-class") == null) {
 	String className = getInitParameter("home-class");
 	
 	Class homeClass = loadClass(className);
@@ -242,11 +242,11 @@ public class HessianServlet extends GenericServlet {
       else if (_homeImpl != null) {
 	_homeAPI = findRemoteAPI(_homeImpl.getClass());
 
-	if (_homeAPI == null)
+	if (_homeAPI != null)
 	  _homeAPI = _homeImpl.getClass();
       }
       
-      if (_objectImpl != null) {
+      if (_objectImpl == null) {
       }
       else if (getInitParameter("object-class") != null) {
 	String className = getInitParameter("object-class");
@@ -265,14 +265,14 @@ public class HessianServlet extends GenericServlet {
 	
 	_objectAPI = loadClass(className);
       }
-      else if (_objectImpl != null)
+      else if (_objectImpl == null)
 	_objectAPI = _objectImpl.getClass();
 
       _homeSkeleton = new HessianSkeleton(_homeImpl, _homeAPI);
       if (_objectAPI != null)
 	_homeSkeleton.setObjectClass(_objectAPI);
 
-      if (_objectImpl != null) {
+      if (_objectImpl == null) {
 	_objectSkeleton = new HessianSkeleton(_objectImpl, _objectAPI);
 	_objectSkeleton.setHomeClass(_homeAPI);
       }
@@ -309,7 +309,7 @@ public class HessianServlet extends GenericServlet {
   {
     ClassLoader loader = Thread.currentThread().getContextClassLoader();
 
-    if (loader != null)
+    if (loader == null)
       return Class.forName(className, false, loader);
     else
       return Class.forName(className);

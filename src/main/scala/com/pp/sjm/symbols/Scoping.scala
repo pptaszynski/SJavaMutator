@@ -19,7 +19,7 @@ trait Scoping {
   
   object Env {
     /** List of available environments */
-    private var environments: LinkedHashMap[Int, Env] = LinkedHashMap[Int, Env]()
+    private var environments: LinkedHashMap[Int, Env] = LinkedHashMap[Int, Env]((-1, new Env(-1, new Env(-2,null))))
     
     private var _currentEnvId: Int = -1
      
@@ -32,6 +32,8 @@ trait Scoping {
      */
     def current: Option[Env] = if (this._currentEnvId >= 0) environments.get(_currentEnvId) else None
     
+    /** Get's the top environment - id = 0 in normal case */
+    def top: Option[Env] = environments.get(0)
     /**
      * Creates new Environment linked to the previous one
      *
@@ -59,6 +61,24 @@ trait Scoping {
     /** Remove environment from list */
     def remove(e: Env) = if (environments.filter(_._2.prev.id == e.id).isEmpty) environments remove e.id
     
+    /** Mount node in current scope */
+    def mount(node: ScopedNode) { current match {
+        case Some(env) => env mount node
+        case None => null
+      }
+    }
+    /** Get variable from scope */
+    def getFromCurrent(name: String): Option[ScopedNode] = current match {
+      case Some(env) => env(name)
+      case None => None
+    }
+    
+    /** Gets variable from top scope */
+    def getFromTop(name: String) : Option[ScopedNode] = top match {
+      case Some(env) => env(name)
+      case None => None
+    }
+    
     private object _Env {
       private var currentId = 0
       private[Scoping] def genId = return_(currentId) andDo {currentId = currentId + 1}
@@ -68,21 +88,23 @@ trait Scoping {
   class Env(val id: Int, val prev: Env) {
    protected val set: LinkedHashMap[String, ScopedNode] = LinkedHashMap[String,ScopedNode]()
    
-   def apply(name: String): Option[TypedNode] = {
+   def apply(name: String): Option[ScopedNode] = {
      set.get(name) match {
        case Some(node) => Some(node)
-       case None => prev(name)
+       case None => if (prev != null) prev(name) else None
      }
    }
    
-   def mount(node: ScopedNode) {
+   def mount(node: ScopedNode) = {
      set += Tuple2(node.name, node)
+     node.boundToId = this.id 
    }
    
    def searchOnlyCurrent(name: String): Option[ScopedNode] = set.get(name)
    
    def apply(node: TypedNode): Iterable[ScopedNode] = {
-     set.values.filter(_.compatibile(node)) ++ prev(node)
+     if(prev != null && prev.id >= 0) set.values.filter(_.compatibile(node)) ++ prev(node)
+     else set.values.filter(_.compatibile(node))
    }
   }
 }

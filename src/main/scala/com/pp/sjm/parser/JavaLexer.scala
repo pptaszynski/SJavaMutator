@@ -82,6 +82,10 @@ class JavaLexer extends StdLexical with JavaTokenParsers with JavaTokens {
   delimiters.clear()
 
   override type Elem = Char
+  
+  override protected def processIdent(name: String) = 
+    if (reserved contains name) Keyword(name) else JavaIdentifier(name)
+    
   //override def token = positioned(token2)
   override def token: Parser[Token] = (
     ident                      ^^ { case ident => processIdent(ident.mkString("")) }

@@ -1,8 +1,9 @@
-package com.pp.sjm.parser
+package com.pp.sjm
+package parser
 
-import com.pp.sjm.ast._
-import com.pp.sjm.symbols.{Type,TypeClass}
-import com.pp.sjm.token.{JavaTokens => tokens}
+import ast._
+import symbols.{Type,TypeClass,Scoping}
+import token.{JavaTokens => tokens}
 
 import scala.util.parsing.combinator.{PackratParsers}
 import scala.util.parsing.input.{Positional}
@@ -14,7 +15,7 @@ import scala.collection.mutable.{HashSet,LinkedList}
  * @author Pawel
  *
  */
-class JavaParser extends StandardTokenParsers with PackratParsers {  
+class JavaParser extends StandardTokenParsers with Scoping {  
   override type Tokens <: StdTokens
   override val lexical: JavaLexer = new JavaLexer
   
@@ -22,12 +23,31 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
   import lexical.{LeftBracket,RigthBracket,LeftBrace,RigthBrace,LeftParenthesis}
   import lexical.{RigthParenthesis,AssignOp,AssignArithmOp,OtherToken,Colon,Comma,Ellipsis,Wildcard,NumericLongLit}
   import lexical.{NumericDoubleLit,NumericFloatLit,NumericIntLit,NumericLit,OctNumericLit,HexNumericLit,StringLit}
-  import lexical.{JavaStringLit, Keyword}
+  import lexical.{JavaStringLit, Keyword, JavaIdentifier}
+  import lexical.Scanner
+  import MutationKind._ 
+  
+  def scoped[T](p: => Parser[T]) : Parser[T] = {
+    var env = Env getNew;
+    val pars = Parser { in => 
+      p(in) match {
+        case Success(t, in1) => { Env reduce; Success(t, in1) }
+        case ns: NoSuccess => { Env reduce; Env remove env; ns }
+      }
+    }
+    pars
+  }
+  
+  implicit def accept(e: JavaToken) : Parser[JavaToken] = positioned(acceptIf(_ == e)("`"+e+"' expected but " + _ + " found") ^^ {case e => e.asInstanceOf[JavaToken]})
+//  override implicit def accept(e: Elem): Parser[Elem] = e match {
+//    case e: JavaToken => positioned(acceptIf(_ == e.JavaToken)("`"+e+"' expected but " + _ + " found"))
+//    case e: Elem => acceptIf(_ == e)("`"+e+"' expected but " + _ + " found")
+//  }
   
   /**
    * Start symbol of the parser
    */
-  def program = compilationUnit
+  def program: Parser[List[Node]] = compilationUnit
 
   /**
    * compilationUnit
@@ -41,7 +61,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def compilationUnit = opt(opt(annotations) ~ packageDeclaration) ~> rep(importDeclaration) ~> rep(typeDeclaration)
+  def compilationUnit: Parser[List[Node]] = opt(opt(annotations) ~ packageDeclaration) ~> rep(importDeclaration) ~> rep(typeDeclaration)
 
   /**
    * packageDeclaration
@@ -78,7 +98,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
   Names
    */
   def qualifiedName = rep1sep(identifier, Dot()) ^^ { case list => list.mkString(".")}
-  def identifier = elem("identifier", _.isInstanceOf[Identifier])
+  def identifier: Parser[JavaIdentifier] = positioned(elem("identifier", _.isInstanceOf[JavaIdentifier]) ^^ ((x: Elem) => JavaIdentifier(x.chars)))
   /**
    * Types
    */
@@ -202,7 +222,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * |   ';'
    * ;
    */
-  def typeDeclaration = classOrInterfaceDeclaration | Semicolon()
+  def typeDeclaration: Parser[Node] = classOrInterfaceDeclaration | Semicolon() ^^^ SomeNode()
 
   /**
    * classOrInterfaceDeclaration
@@ -269,7 +289,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    */
   def memberDecl : Parser[List[Node]] = (
     fieldDeclaration
-    | methodDeclaration ^^ { case method => List[Node](method) }
+    | scoped(methodDeclaration) ^^ { case method => List[Node](method) }
     | classDeclaration ^^ { // Care only about internal classess - there may be some opprotunity do mutate.
         case c: ClassNode => List[Node](c)
         case _ => List[Node](SomeNode())
@@ -280,7 +300,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
   /**
    * methodDeclaration
    * :
-   *     /* For constructor, return type is null, name is 'init' */
+   *    
    *      modifiers
    *     (typeParameters
    *     )?
@@ -316,17 +336,14 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
     /* Constructors */
     modifiers ~> opt(typeParameters) ~> identifier ~ formalParameters ~ (opt(keyword("throws") ~> qualifiedNameList)
       ~> LeftBrace() ~> opt(explicitConstructorInvocation) ~> rep(blockStatement) <~ RigthBrace()) ^^ {
-    	case id ~ formalParams ~ block => MethodNode(id.chars, Type.CONSTRUCT, 
-    	    BlockNode(block.foldLeft(List[Node]())(_ ::: _)))
-    	// TODO: Implement serious dealing with constructor body (this mutator opportunity)
+      	case id ~ args ~ block => MethodNode(id.chars, Type.CONSTRUCT, BlockNode(block.foldLeft(List[Node]())(_ ::: _)))
       }
-      
     |
     /* member methods */
     modifiers ~> opt(typeParameters) ~> (typeExpr | keyword("void") ^^^ Type.VOID) ~ identifier ~ formalParameters
       ~ (rep(LeftBracket() ~ RigthBracket()) ~> opt(keyword("throws") ~> qualifiedNameList) ~> (block | Semicolon() ^^^ BlockNode())) ^^ {
     	// TODO: Implement serious dealing with parameters and block
-        case t ~ id ~ params ~ block => MethodNode(id.chars, t, block)  
+        case t ~ id ~ args ~ block => MethodNode(id.chars, t, block)
       }
     )
 
@@ -347,17 +364,19 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
   // TODO: Read initializers of variables in case of dealing with initializers or constructors someday
   def fieldDeclaration: Parser[List[FieldNode]] = modifiers ~> typeExpr ~ rep1sep(variableDeclarator, Comma()) <~ Semicolon() ^^ {
 	  case typ ~ names => {
-	 	var fields: List[FieldNode] = List[FieldNode]()
-	 	// names is a collection of Tuple2 where _1 is the name and _2 is dimension
-	 	for(name <- names) {
-	 		var t = typ
-	 		if (name._2 > 0) for (i <- 0 until name._2) t.name += "[]"
-	 		fields = FieldNode(name._1.chars, t) :: fields
-	 	}
-	 	
-	 	fields.reverse
+  	 	var fields: List[FieldNode] = List[FieldNode]()
+  	 	// names is a collection of Tuple2 where _1 is the name and _2 is dimension
+  	 	for(name <- names) {
+  	 		var t = typ
+  	 		if (name._2 > 0) for (i <- 0 until name._2) t.name += "[]"
+  	 		var field = FieldNode(name._1.chars, t)
+  	 		Env mount field
+  	 		fields = field :: fields
+  	 	}
+  	 	
+  	 	fields.reverse
 	  }
-    }
+  }
 
   /**
    * variableDeclarator
@@ -464,7 +483,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    * ;
    */
   def classDeclaration : Parser[Node] = (
-    normalClassDeclaration
+    scoped(normalClassDeclaration) 
   | enumDeclaration ^^^ SomeNode()
   )
 
@@ -615,7 +634,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
         ')'
     ;
    */
-  def formalParameters = LeftParenthesis() ~ opt(formalParameterDecls) ~ RigthParenthesis()
+  def formalParameters = LeftParenthesis() ~> opt(formalParameterDecls) <~ RigthParenthesis()
 
   /**
    * formalParameterDecls
@@ -629,10 +648,10 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     ellipsisParameterDecl
    * ;
    */
-  def formalParameterDecls = (
-    ellipsisParameterDecl
+  def formalParameterDecls: Parser[List[VariableNode]] = (
+    ellipsisParameterDecl ^^ { case vn => List[VariableNode](vn) }
     | rep1sep(normalParameterDecl, Comma())
-    | rep1(normalParameterDecl <~ Comma()) <~ Comma() ~> ellipsisParameterDecl
+    | rep1sep(normalParameterDecl, Comma()) ~ (Comma() ~> ellipsisParameterDecl) ^^ { case vn ~ el => vn :+ el }  
     )
 
   /**
@@ -641,8 +660,16 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     ('[' ']'
    *     )*
    * ;
-   */
-  def normalParameterDecl = variableModifiers ~ typeExpr ~ identifier ~ rep(LeftBracket() ~ RigthBracket())
+   */ 
+  def normalParameterDecl: Parser[VariableNode] = variableModifiers ~> typeExpr ~ identifier ~ rep(LeftBracket() ~ RigthBracket()) ^^ {
+    case typ ~ name ~ arr => {
+      var t = typ
+      if (!(arr isEmpty)) for (i <- 0 until arr.length) t.name += "[]"
+      var vn = VariableNode(name.chars, t)
+      if (Env.current isDefined) Env.current.get.mount(vn.asInstanceOf[ScopedNode])
+      vn
+    }
+  } 
 
   /**
    * ellipsisParameterDecl
@@ -650,8 +677,13 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     type  '...'
    *     IDENTIFIER
    * ;
-   */
-  def ellipsisParameterDecl = variableModifiers ~ typeExpr ~ Ellipsis() ~ identifier
+   */  def ellipsisParameterDecl: Parser[VariableNode] = variableModifiers ~ (typeExpr <~ Ellipsis() ) ~ identifier ^^ {
+    case mod ~ expr ~ id => {
+      var vn = VariableNode(id.chars, Type(expr.name + "...", TypeClass.ITERABLE))
+      if (Env.current isDefined) Env.current.get.mount(vn.asInstanceOf[ScopedNode])
+      vn
+    }
+  }
 
   /**
    * explicitConstructorInvocation
@@ -687,11 +719,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     '}'
    * ;
    */
-  def block: Parser[BlockNode] =  LeftBrace() ~> rep(blockStatement) <~ RigthBrace() ^^ {
-    case stmts => {
-      BlockNode(stmts.foldLeft(List[Node]())( _ ::: _))
-    }
-  }
+  def block: Parser[BlockNode] =  scoped(LeftBrace() ~> rep(blockStatement) <~ RigthBrace() ^^ {
+    case stmts => BlockNode(stmts.foldLeft(List[Node]())( _ ::: _))
+  })
   /**
    * blockStatement
    * :   localVariableDeclarationStatement
@@ -728,7 +758,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
         for(name <- names) {
           var t = typ
           if (name._2 > 0) for (i <- 0 until name._2) t.name += "[]"
-          fields = VariableNode(name._1.chars, t) :: fields
+          var variable = VariableNode(name._1.chars, t)
+          Env mount variable
+          fields = variable :: fields
         }
         
         fields.reverse
@@ -776,11 +808,48 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
     | tryStatement
     | keyword("switch") ~ parExpression <~ LeftBrace() ~> switchBlockStatementGroups <~ RigthBrace() ^^^ SomeStatement()
     | keyword("synchronized") ~ parExpression ~ block ^^^ SomeStatement()
-    | keyword("return") ~> opt(expression) <~ Semicolon() ^^ {
-      case Some(expression) => ReturnStatement(expression)
-      case None => ReturnStatement()
+    | keyword("return") ~ opt(expression) <~ Semicolon() ^^ {
+      case t ~ Some(expr) => expr match {
+        case id: Id => {
+          var vn = id.variable
+          var compatibile = Env.current.get.apply(vn.asInstanceOf[TypedNode])
+          var ret = ReturnStatement(Id(vn))
+          if (compatibile.filter(_.name != vn.name).size  > 0) {
+            ret.mutationCandidate = true 
+            //println("*** Found Getter modification mutation candidate !!! :D:D :D Pos: " + expr.pos)
+            print("Candidates: ");
+            for (x <- compatibile.filter(_.name != vn.name)) {
+              print(x.name +",")
+            }
+            println("");
+            MutationController.addMutationCandidate(ret, MutationKind.CHANGE_GETTER, compatibile.filter(_.name != vn.name).map(_.name))
+          }
+          ret 
+        }
+        /*case vn: VariableNode => {
+          var compatibile = Env.current.get.apply(vn.asInstanceOf[TypedNode])
+          var ret = ReturnStatement(Id(vn))
+          if (compatibile.filter(_.name != vn.name).size  > 0) {
+            ret.mutationCandidate = true 
+            println("*** Found Getter modification mutation candidate !!! :D:D :D")
+            print("Candidates: ");
+            for (x <- compatibile.filter(_.name != vn.name)) {
+              print(x.name +",")
+            }
+            println("");
+            
+          }
+          ret 
+        }*/
+        case _ => ReturnStatement(expr)
+      }
+      case t ~ None => ReturnStatement()
     }
-    | keyword("throw") ~> expression <~ Semicolon() ^^ { case exp => ThrowStatement(exp) }
+    | keyword("throw") ~ expression <~ Semicolon() ^^ { case t ~ exp => {
+        var ret = ThrowStatement(exp); ret.mutationCandidate = true;
+        println("*** Found THROW mutation candidate !!! :D:D :D pos " + exp.pos); ret
+      }
+    }
     | keyword("break") ~ opt(identifier) <~ Semicolon() ^^^ SomeStatement()
     | keyword("continue") ~ opt(identifier) <~ Semicolon() ^^^ SomeStatement()
     | expression <~ Semicolon()
@@ -850,9 +919,9 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     ')' block
    * ;
    */
-  def catchClause: Parser[BlockNode] = keyword("catch") ~> LeftParenthesis() ~> formalParameter ~ ( RigthParenthesis() ~> block) ^^ {
+  def catchClause: Parser[BlockNode] = keyword("catch") ~> LeftParenthesis() ~> formalParameter ~> RigthParenthesis() ~> block ^^ {
     // Don't return formal parameter. So far only block are browserd to look for mutation opportunity.
-    case formalParam ~ b => b
+    case b => b
   }
 
   /**
@@ -862,7 +931,15 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )*
    * ;
    */
-  def formalParameter = variableModifiers ~ typeExpr ~ identifier ~ rep(LeftBracket() ~ RigthBracket())
+  def formalParameter = variableModifiers ~> typeExpr ~ identifier ~ rep(LeftBracket() ~ RigthBracket()) ^^ {
+    case typ ~ name ~ arr => {
+      var t = typ
+      if (!(arr isEmpty)) for (i <- 0 until arr.length) t.name += "[]"
+      var vn = VariableNode(name.chars, t)
+     // if (Env.current isDefined) Env.current.get.mount(vn.asInstanceOf[ScopedNode])
+      vn
+    }
+  }
 
   /**
    * forstatement
@@ -924,7 +1001,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    *     )?
    * ;
    */
-  def expression : Parser[Expression]= conditionalExpression ~ opt(assignmentOperator ~ expression) ^^ {
+  def expression : Parser[Expression]= positioned(conditionalExpression ~ opt(assignmentOperator ~ expression) ^^ {
     case ce ~ assign => if (assign isDefined) assign.asInstanceOf[Some[~[JavaToken,Expression]]].get match {
       case op ~ exp => {
         var tok = tokens.JavaToken(op.chars)
@@ -932,7 +1009,7 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
         AssignExpr(tok, ce, exp)
       }
     } else ce 
-  }
+  })
  
   /**
    * assignmentOperator
@@ -1058,8 +1135,18 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
 		  op => {
 			  var tok = tokens.JavaToken(op.chars)
 			  tok.setPos(op.asInstanceOf[JavaToken].pos)
-		 	  Relational(tokens.JavaToken(op.chars),_: Expression,_: Expression)
+		 	  def rel(tok: tokens.JavaToken, e1: Expression, e2: Expression) = {
+			    var ret = Relational(tok, e1, e2)
+          ret.mutationCandidate = true
+          //println("*** Found EQUALITY EXPR mutation candidate !!! :D:D :D: POS="+tok.pos);
+          MutationController.addMutationCandidate(ret, RELATIONAL_OP_CHANGE)
+			    ret
+			  }
+			  rel(tok, _: Expression, _: Expression)
 		  }
+//  		  ret.mutationCandidate = true
+//        println("*** Found mutation candidate !!! :D:D :D");
+//        ret
 	  })
 //	  instanceOfExpression ~ rep((JavaToken("==") | JavaToken("!=")) ~ instanceOfExpression) ^^ {
 //	  case expr ~ rest => {
@@ -1103,10 +1190,20 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    */
   def relationalExpression: Parser[Expression] = chainl1(shiftExpression, relationalOp ^^ {
 	  op => {
-	 	var tok = tokens.JavaToken(op.chars)
-	 	tok.setPos(op.asInstanceOf[JavaToken].pos)
-	 	Relational(tok, _: Expression, _: Expression)
-	  }
+    	 	var tok = tokens.JavaToken(op.chars)
+    	 	tok.setPos(op.asInstanceOf[JavaToken].pos)
+    	 	def rel(tok: tokens.JavaToken, e1: Expression, e2: Expression) = {
+    	 	  var ret = Relational(tok, e1, e2)
+          ret.mutationCandidate = true
+          //println("*** Found RELATIONAL mutation candidate !!! :D:D :D POS: " + tok.pos);
+    	 	  MutationController.addMutationCandidate(ret, RELATIONAL_OP_CHANGE)
+     	    ret
+    	 	}
+    	 	rel(tok, _: Expression, _: Expression)
+	    }
+//	  ret.mutationCandidate = true
+//    println("*** Found mutation candidate !!! :D:D :D");
+//    ret
   })
 
   /**
@@ -1290,17 +1387,50 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
     | keyword("this") ~ rep(Dot() ~> identifier) ~ opt(identifierSuffix) ^^ {
     	case t ~ path ~ idSuffix => {
     	  var name = ""
+    	  var id = JavaIdentifier(name)
     	  path match {
     	    // Consider only first identifier before node as this may be the reall identifier of variable
-    	    case xs :: rest => name = xs.chars
-    	    case Nil => name = ""
+    	    case xs :: rest => {
+    	      name = xs.chars; id = xs.asInstanceOf[JavaIdentifier]
+        	  var mutationCandidate = Env getFromCurrent name
+        	  var onTop = Env getFromTop name
+        	  var returnVal = {
+        	    if(onTop.isDefined) {
+        	      var nod = Id(onTop.get.asInstanceOf[VariableNode])
+        	      nod.setPos(id.pos)
+        	      ThisExpr(nod)  
+        	    } else if(mutationCandidate isDefined) {
+        	      var nod = Id(mutationCandidate.get.asInstanceOf[VariableNode])
+        	      nod.setPos(id.pos)
+        	      ThisExpr(nod) 
+        	    } else {
+        	      var nod = Id(VariableNode(name, Type.DEFFERED))
+        	      nod setPos id.pos  
+        	      ThisExpr(nod)   
+        	    }
+        	  }  
+        	  if (mutationCandidate.isDefined && onTop.isDefined ) {
+        	    if(mutationCandidate.get.boundToId != onTop.get.boundToId) returnVal.mutationCandidate = true
+        	    //println("*** Found THIS mutation candidate !!! :D:D :D POS: " + id.pos)
+        	    returnVal.setPos(id.pos)
+        	    MutationController.addMutationCandidate(returnVal, MutationKind.REMOVE_THIS)
+        	  }
+        	  returnVal
+    	    }
+    	    case Nil => ThisExpr(Id(VariableNode("", Type.DEFFERED)))
     	  }
-    	  // TODO: After implementing scoping check the variable in current scope.
-    	  ThisExpr(Id(VariableNode(name, Type.STRING)))
     	}
     }
-    //TODO: Return an Id node here, not the expression
-    | identifier ~ rep(Dot() ~ identifier) ~ opt(identifierSuffix)^^^ SomeExpr()
+    | identifier ~ rep(Dot() ~> identifier) ~ opt(identifierSuffix)^^ {
+      case id ~ ids ~ Some(suffix) => SomeExpr()
+      case id ~ rest ~ None => Env getFromCurrent id.chars match {
+        case Some(vn) => Id(vn.asInstanceOf[VariableNode])
+        case None => { 
+        //  println("!!! Didn't found variable in scope. " + id.chars + "***"); 
+          Id(VariableNode(id.chars, Type.DEFFERED)) 
+        }
+      }
+    }
     | keyword("super") ~ superSuffix ^^^ SuperExpr("") //Does not not do anything with the suffix
     | literal
     | creator ^^^ SomeExpr()
@@ -1638,4 +1768,24 @@ class JavaParser extends StandardTokenParsers with PackratParsers {
    */
   def annotationMethodDeclaration = modifiers ~ typeExpr ~ identifier ~ LeftParenthesis() ~ RigthParenthesis() ~
     opt(keyword("default") ~ elementValue) ~ Semicolon()
+  
+  def apply(source: String) : Option[List[Node]]= {
+    phrase(program)(new Scanner(source)) match {
+      case Success(item, next) => {
+          println("Source parsing succeded...")
+          println("Applying mutations... ")
+          return Some(item)
+      }
+      case Failure(msg, next) => {
+        println("Parsing failed with msg: " + msg)
+        println("At position: " + next.pos + " in:")
+        println(next.source.toString.lines.drop(next.pos.line - 1).next())
+        for (i <- 0 until next.pos.column) {
+          print(" ")
+        }
+        println("^")
+        return None
+      } 
+    } 
+  }
 }

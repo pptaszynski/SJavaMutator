@@ -10,6 +10,7 @@ import scala.util.parsing.input.{Positional}
 trait Node extends Positional {
   def childCount: Int = childs.size
   def childs: Iterator[Node]
+  var mutationCandidate = false
 }
 
 trait NamedNode extends Node {
@@ -21,7 +22,7 @@ trait NamedNode extends Node {
 	}
 }
 
-trait TypedNode extends Node {
+trait TypedNode extends Node with Bindable {
 	def ofType: Type
 	
 	override def equals(that: Any) : Boolean = that match {
@@ -42,6 +43,13 @@ trait Bindable {
     if (boundToId < 0) boundToId = bindToId
     this
   }
+}
+
+trait ScopedNode extends NamedNode with TypedNode with Bindable {
+  override def equals(that: Any) : Boolean = that match {
+    case n: ScopedNode => this.name == n.name
+    case _ => false
+  } 
 }
 /**
  * Some AST node.
@@ -88,7 +96,7 @@ case class ClassNode(val className: String, var mem: HashSet[Node]) extends Name
  * @author Pawel
  * 
  */
-class VariableNode(val id: String, val t: Type) extends NamedNode with TypedNode {
+class VariableNode(val id: String, val t: Type) extends NamedNode with TypedNode with ScopedNode {
 	/** Name of the variable */
 	def name = id
 	

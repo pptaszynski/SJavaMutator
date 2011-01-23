@@ -13,7 +13,7 @@ package com.pp.sjm.symbols
  */
 object TypeClass extends Enumeration {
   type TypeClass = Value
-  val PRIMITIVE, DEFINED, META = Value
+  val PRIMITIVE, DEFINED, META, ITERABLE = Value
 }
 
 /**
@@ -66,4 +66,6 @@ object Type {
   lazy val STRING = new Type ("String", TypeClass.DEFINED)
   
   lazy val CONSTRUCT = new Type("constructor", TypeClass.META)
+  
+  lazy val DEFFERED = new Type("deferred", TypeClass.META)
 }

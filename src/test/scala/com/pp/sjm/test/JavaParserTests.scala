@@ -1,3 +1,10 @@
+/**
+ * Created by IntelliJ IDEA.
+ * User: Pawel
+ * Date: 1/6/11
+ * Time: 3:00 PM
+ * To change this template use File | Settings | File Templates.
+ */
 package com.pp.sjm.test
 
 
@@ -7,13 +14,7 @@ import com.pp.sjm.parser.JavaLexer
 import junit.framework.Assert._
 import scala.util.parsing.combinator.Parsers;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Pawel
- * Date: 1/6/11
- * Time: 3:00 PM
- * To change this template use File | Settings | File Templates.
- */
+
 
 object JavaParserTests {
   def suite: Test = {

@@ -58,6 +58,7 @@ class ReturnStatement extends Statement with TypedNode {
     this()
     this.e = e
     _child = List[Node](this.e)
+    pos = e.pos
   }
   
   override def cat = RETURN
@@ -68,7 +69,7 @@ class ReturnStatement extends Statement with TypedNode {
   
   override def toString = "return " + eToString + ";"
   
-  private def eToString = if (e != null) e.toString else ""
+  def eToString = if (e != null) e.toString else ""
 }
 /**
  * Companion extractor object for ReturnStatement
