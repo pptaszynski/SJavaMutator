@@ -5,6 +5,7 @@ package com.pp.sjm
 package mutation
 
 import ast._
+import util._
 
 import scala.util.parsing.input.{OffsetPosition,Position}
 /**
@@ -13,6 +14,8 @@ import scala.util.parsing.input.{OffsetPosition,Position}
  */
 trait ThisMutations extends Mutations {
   class ThisRemovalMutation(cand: ThisMutationCandidate) extends Mutation {
+    val kind = MutationKind.REMOVE_THIS
+    
     override def apply(source: String) = {
       var line = cand.pos.lineContents
       // Why it's -2and +3? Shall be -1 and +4 IMO.
@@ -20,13 +23,15 @@ trait ThisMutations extends Mutations {
       val dest = source.linesWithSeparators.toArray
       dest(cand.pos.line - 1) = newLine
       //val ret = new StringBuilder(source.length)
-      println("Applied this removal operator mutation at line: " + cand.pos.line +", col: " + cand.pos.column)
-      print("O: "+line)
-      print("M: "+newLine)
-      for (i <- 0 until cand.pos.column+2) {
-          print(" ")
-      }
-      println("^\n") 
+      //if (ProgramOptions.verbose) {
+        println("Applied this removal operator mutation at line: " + cand.pos.line +", col: " + cand.pos.column)
+        print("O: "+line)
+        print("M: "+newLine)
+        for (i <- 0 until cand.pos.column+2) {
+            print(" ")
+        }
+        println("^\n")
+      //}
       dest.mkString
     }
   }

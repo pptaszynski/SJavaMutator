@@ -2,54 +2,37 @@
  * 
  */
 package com.pp.sjm
+package util
 
 /**
  * @author Pawel Ptaszynski
  *
  */
 object ProgramOptions {
-	def readOptions(args: Array[String]): ProgramOptions = {
-		val options = new ProgramOptions(false, false)
-		var fileName: String = ""
-		for (a <- args) a match {
-	      case "-h" | "-help"    =>
-	        println("Option not implemented yet")
-	      case "-v" | "-verbose" =>
-	        options.Verbose(true)
-	      case "-f"| "-file" =>
-	        fileName = args(args.findIndexOf((x: String) => x == a) + 1)
-	      case x =>
-	        println("Unknown option: '" + x + "'")
-	    }
-		
-		return options
+  var verbose = false
+  var help = false
+  var files = List[String]()
+  var outputSuffix = ""
+  var mutationsPerFile = 1
+  var enabledMutations = List[MutationKind.Value]()
+  
+	def readOptions(args: Array[String]) = {
+		var argsMap = args.toIterator
+		argsMap.next()
+    for (a <- argsMap) a match {
+      case "-v" => verbose = true
+      case "-h" => help = true
+      case "-os" => if (argsMap.hasNext) outputSuffix = argsMap.next
+      case "-N" | "-n" => if(argsMap.hasNext) mutationsPerFile = argsMap.next.toInt
+      case "REMOVE_THIS" => enabledMutations = MutationKind.REMOVE_THIS :: enabledMutations
+      case "RELATIONAL_OP_CHANGE" => enabledMutations  = MutationKind.RELATIONAL_OP_CHANGE :: enabledMutations
+      case "CHANGE_GETTER" => enabledMutations = MutationKind.CHANGE_GETTER :: enabledMutations
+      case "REMOVE_THROW" => enabledMutations = MutationKind.REMOVE_THROW :: enabledMutations
+      case s: String => if (s.matches(".*?\\.java")) addFile(s)
+    }
 	}
-	 
+  def addFile(name: String) = {
+    this.files = this.files ::: List(name)
+  }
+  def filesIterator = files.iterator
 } 
- 
-class ProgramOptions(var verbose: Boolean = false, var help: Boolean = false) {
-	var files: List[String] = List() 
-	
-	def Verbose(value: Boolean): Unit = {
-		verbose = value
-	}
-	def Verbose = {
-		verbose == true
-	}
-	def Help(value: Boolean): Unit = {
-		help = value
-	}
-	def Help = {
-		help == true 
-	}
-	
-	def addFile(name: String): Unit = {
-		if (!files.exists(a => a==name)) {
-			files = name :: files;
-		}
-	}
-	
-	def getFilesIterator: Iterator[String] = {
-		files.iterator
-	}
-}

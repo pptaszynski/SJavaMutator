@@ -5,6 +5,7 @@ package com.pp.sjm
 package mutation
 
 import ast._
+import util._
 
 import scala.util.{Random}
 import java.lang.Math
@@ -16,6 +17,8 @@ import java.util.{Date}
  */
 trait RelationalOpMutations extends Mutations {
   class RelationalOpChangeMutation(cand: RelationalOpMutationCandidate) extends Mutation {
+    val kind = MutationKind.RELATIONAL_OP_CHANGE 
+    
     override def apply(source: String) : String = {
       def newOp(op: String) : String = {
         if (isEquality(op)) op match {

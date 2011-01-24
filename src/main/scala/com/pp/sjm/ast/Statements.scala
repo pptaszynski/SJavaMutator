@@ -96,6 +96,7 @@ class ThrowStatement extends Statement {
     this()
     this.e = e
     this._child = e :: this._child
+    pos = e.pos
   }
   
   override def childs : Iterator[Node] = _child.iterator

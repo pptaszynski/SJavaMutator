@@ -4,7 +4,7 @@ package parser
 import ast._
 import symbols.{Type,TypeClass,Scoping}
 import token.{JavaTokens => tokens}
-
+import util._
 import scala.util.parsing.combinator.{PackratParsers}
 import scala.util.parsing.input.{Positional}
 import scala.util.parsing.combinator.syntactical.{StdTokenParsers, StandardTokenParsers}
@@ -816,12 +816,14 @@ class JavaParser extends StandardTokenParsers with Scoping {
           var ret = ReturnStatement(Id(vn))
           if (compatibile.filter(_.name != vn.name).size  > 0) {
             ret.mutationCandidate = true 
-            //println("*** Found Getter modification mutation candidate !!! :D:D :D Pos: " + expr.pos)
-            print("Candidates: ");
-            for (x <- compatibile.filter(_.name != vn.name)) {
-              print(x.name +",")
+            if (ProgramOptions.verbose) {
+              println("*** Found Getter modification mutation candidate !!! :D:D :D Pos: " + expr.pos)
+              print("Candidates: ");
+              for (x <- compatibile.filter(_.name != vn.name)) {
+                print(x.name +",")
+              }
+              println("");
             }
-            println("");
             MutationController.addMutationCandidate(ret, MutationKind.CHANGE_GETTER, compatibile.filter(_.name != vn.name).map(_.name))
           }
           ret 
@@ -847,7 +849,11 @@ class JavaParser extends StandardTokenParsers with Scoping {
     }
     | keyword("throw") ~ expression <~ Semicolon() ^^ { case t ~ exp => {
         var ret = ThrowStatement(exp); ret.mutationCandidate = true;
-        println("*** Found THROW mutation candidate !!! :D:D :D pos " + exp.pos); ret
+        MutationController.addMutationCandidate(ret, MutationKind.REMOVE_THROW)
+        if (ProgramOptions.verbose) {
+          println("*** Found THROW mutation candidate !!! :D:D :D pos " + exp.pos)
+        }
+         ret
       }
     }
     | keyword("break") ~ opt(identifier) <~ Semicolon() ^^^ SomeStatement()
@@ -1138,7 +1144,11 @@ class JavaParser extends StandardTokenParsers with Scoping {
 		 	  def rel(tok: tokens.JavaToken, e1: Expression, e2: Expression) = {
 			    var ret = Relational(tok, e1, e2)
           ret.mutationCandidate = true
-          //println("*** Found EQUALITY EXPR mutation candidate !!! :D:D :D: POS="+tok.pos);
+          
+          if (ProgramOptions.verbose) {
+            println("*** Found EQUALITY EXPR mutation candidate !!! :D:D :D: POS="+tok.pos)
+          }
+			    
           MutationController.addMutationCandidate(ret, RELATIONAL_OP_CHANGE)
 			    ret
 			  }
@@ -1195,7 +1205,9 @@ class JavaParser extends StandardTokenParsers with Scoping {
     	 	def rel(tok: tokens.JavaToken, e1: Expression, e2: Expression) = {
     	 	  var ret = Relational(tok, e1, e2)
           ret.mutationCandidate = true
-          //println("*** Found RELATIONAL mutation candidate !!! :D:D :D POS: " + tok.pos);
+          if (ProgramOptions.verbose) {
+            println("*** Found RELATIONAL mutation candidate !!! :D:D :D POS: " + tok.pos)
+          }
     	 	  MutationController.addMutationCandidate(ret, RELATIONAL_OP_CHANGE)
      	    ret
     	 	}
@@ -1411,7 +1423,9 @@ class JavaParser extends StandardTokenParsers with Scoping {
         	  }  
         	  if (mutationCandidate.isDefined && onTop.isDefined ) {
         	    if(mutationCandidate.get.boundToId != onTop.get.boundToId) returnVal.mutationCandidate = true
-        	    //println("*** Found THIS mutation candidate !!! :D:D :D POS: " + id.pos)
+        	    if (ProgramOptions.verbose) {
+        	      println("*** Found THIS mutation candidate !!! :D:D :D POS: " + id.pos)
+        	    }
         	    returnVal.setPos(id.pos)
         	    MutationController.addMutationCandidate(returnVal, MutationKind.REMOVE_THIS)
         	  }

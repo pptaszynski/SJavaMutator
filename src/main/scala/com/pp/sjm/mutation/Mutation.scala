@@ -15,6 +15,7 @@ trait Mutations {
   type Candidate <: MutationCandidate[Node]
   
   trait Mutation {
+    val kind: MutationKind.Value
     def apply(source: String) : String 
   }
   
